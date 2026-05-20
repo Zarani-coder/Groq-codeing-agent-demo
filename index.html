@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Groq Agent</title>
+
+<style>
+body {
+  background: radial-gradient(circle at top, #1a0f2e, #0d0d0d);
+  color: #eaeaea;
+  font-family: monospace;
+  padding: 20px;
+}
+
+.container {
+  max-width: 800px;
+  margin: auto;
+}
+
+h2 {
+  color: #a78bfa;
+}
+
+input {
+  width: 75%;
+  padding: 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid #333;
+  color: white;
+  border-radius: 6px;
+}
+
+button {
+  padding: 12px;
+  background: #7c3aed;
+  border: none;
+  color: white;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.logs, .code {
+  margin-top: 20px;
+  padding: 15px;
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.logs {
+  height: 180px;
+  overflow-y: auto;
+}
+
+.code {
+  min-height: 120px;
+  white-space: pre-wrap;
+}
+
+.typing {
+  border-right: 2px solid #a78bfa;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  50% { border-color: transparent; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <h2>⚡ Groq Coding Agent</h2>
+
+  <input id="prompt" placeholder="Describe your task..." />
+  <button onclick="runAgent()">Run</button>
+
+  <div class="logs" id="logs"></div>
+  <div class="code" id="code"></div>
+</div>
+
+<script>
+const logs = document.getElementById("logs");
+const code = document.getElementById("code");
+
+function addLog(text, delay) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      logs.innerHTML += `> ${text}<br>`;
+      logs.scrollTop = logs.scrollHeight;
+      resolve();
+    }, delay);
+  });
+}
+
+function typeCode(text) {
+  return new Promise(resolve => {
+    let i = 0;
+    code.innerHTML = "";
+    const interval = setInterval(() => {
+      code.innerHTML += text[i];
+      i++;
+      if (i >= text.length) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 15);
+  });
+}
+
+async function runAgent() {
+  logs.innerHTML = "";
+  code.innerHTML = "";
+
+  await addLog("Analyzing task...", 700);
+  await addLog("Planning steps...", 800);
+  await addLog("Generating code...", 1000);
+  await addLog("Reviewing output...", 900);
+  await addLog("Fixing issues...", 800);
+  await addLog("Done ✅", 400);
+
+  await typeCode(`function login(user, pass) {
+  if (!user || !pass) {
+    return "Missing credentials";
+  }
+  return "Login successful";
+}`);
+}
+</script>
+
+</body>
+</html>
