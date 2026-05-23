@@ -2,36 +2,36 @@
 node_modules/
 npm-debug.log
 yarn-error.log
-package-lock.json
-yarn.lock
+pnpm-debug.log
 
 # Environment variables
 .env
 .env.local
 .env.*.local
 
-# IDE and editor
+# IDE and Editor
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+*.sublime-workspace
 
-# Build output
+# Build files
 dist/
 build/
 .next/
 out/
 
+# OS files
+Thumbs.db
+.DS_Store
+
 # Logs
 logs/
 *.log
 
-# Temporary files
-*.tmp
+# Cache
 .cache/
-
-# OS files
-Thumbs.db
-.DS_Store
+.eslintcache
