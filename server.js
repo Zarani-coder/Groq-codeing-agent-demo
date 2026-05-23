@@ -7,15 +7,18 @@ const config = require('./config');
 const app = express();
 
 // Middleware
-app.use(cors({
-  origin: config.server.corsOrigin,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  credentials: true
-}));
+app.use(cors({ origin: config.server.corsOrigin }));
 app.use(express.json());
 app.use(express.static('public'));
 
-// Initialize Groq API client
+// Logger utility
+const logger = {
+  info: (msg) => console.log(`[INFO] ${msg}`),
+  error: (msg) => console.error(`[ERROR] ${msg}`),
+  warn: (msg) => console.warn(`[WARN] ${msg}`)
+};
+
+// Groq API client
 const groqClient = axios.create({
   baseURL: config.api.baseUrl,
   headers: {
@@ -26,269 +29,204 @@ const groqClient = axios.create({
 });
 
 // Helper function to call Groq API
-async function callGroqAPI(messages, configType = 'generation') {
+async function callGroqAPI(systemPrompt, userPrompt, maxTokens, temperature) {
   try {
-    const apiConfig = config[configType];
     const response = await groqClient.post('/chat/completions', {
       model: config.api.model,
-      messages: messages,
-      max_tokens: apiConfig.maxTokens,
-      temperature: apiConfig.temperature,
-      top_p: apiConfig.topP
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      max_tokens: maxTokens,
+      temperature: temperature
     });
-
     return response.data.choices[0].message.content;
   } catch (error) {
-    console.error('Groq API Error:', error.response?.data || error.message);
-    throw new Error(`Groq API Error: ${error.response?.data?.error?.message || error.message}`);
+    logger.error(`Groq API Error: ${error.message}`);
+    throw new Error('Failed to call Groq API');
   }
 }
 
-// Routes
-
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    version: '1.0.0'
-  });
+  res.json({ status: 'ok', message: 'Groq Coding Agent is running' });
 });
 
 // Generate code endpoint
 app.post('/api/generate', async (req, res) => {
   try {
-    const { prompt, language = 'javascript' } = req.body;
-
+    const { prompt } = req.body;
+    
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
-    console.log(`Generating code for: ${prompt}`);
-
-    const messages = [
-      {
-        role: 'system',
-        content: config.generation.systemPrompt
-      },
-      {
-        role: 'user',
-        content: `Generate ${language} code for: ${prompt}`
-      }
-    ];
-
-    const generatedCode = await callGroqAPI(messages, 'generation');
+    logger.info(`Generating code for prompt: ${prompt.substring(0, 50)}...`);
+    
+    const generatedCode = await callGroqAPI(
+      config.generation.systemPrompt,
+      prompt,
+      config.generation.maxTokens,
+      config.generation.temperature
+    );
 
     res.json({
       success: true,
-      stage: 'generation',
-      code: generatedCode,
-      language: language
+      prompt,
+      generatedCode,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Generation error:', error);
-    res.status(500).json({ 
-      error: 'Code generation failed', 
-      message: error.message 
-    });
+    logger.error(error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
 // Review code endpoint
 app.post('/api/review', async (req, res) => {
   try {
-    const { code, language = 'javascript' } = req.body;
-
+    const { code } = req.body;
+    
     if (!code) {
       return res.status(400).json({ error: 'Code is required' });
     }
 
-    console.log(`Reviewing code...`);
-
-    const messages = [
-      {
-        role: 'system',
-        content: config.review.systemPrompt
-      },
-      {
-        role: 'user',
-        content: `Review this ${language} code and provide feedback:\n\n${code}`
-      }
-    ];
-
-    const review = await callGroqAPI(messages, 'review');
+    logger.info('Reviewing code...');
+    
+    const review = await callGroqAPI(
+      config.review.systemPrompt,
+      `Please review the following code:\n\n${code}`,
+      config.review.maxTokens,
+      config.review.temperature
+    );
 
     res.json({
       success: true,
-      stage: 'review',
-      feedback: review,
-      language: language
+      review,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Review error:', error);
-    res.status(500).json({ 
-      error: 'Code review failed', 
-      message: error.message 
-    });
+    logger.error(error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
 // Refine code endpoint
 app.post('/api/refine', async (req, res) => {
   try {
-    const { code, feedback, language = 'javascript', round = 1 } = req.body;
-
-    if (!code || !feedback) {
-      return res.status(400).json({ error: 'Code and feedback are required' });
+    const { code, feedback } = req.body;
+    
+    if (!code) {
+      return res.status(400).json({ error: 'Code is required' });
     }
 
-    if (round > config.refinement.maxRounds) {
-      return res.status(400).json({ 
-        error: `Maximum refinement rounds (${config.refinement.maxRounds}) exceeded` 
-      });
-    }
-
-    console.log(`Refining code - Round ${round}...`);
-
-    const messages = [
-      {
-        role: 'system',
-        content: config.refinement.systemPrompt
-      },
-      {
-        role: 'user',
-        content: `Original ${language} code:\n\n${code}\n\nFeedback to address:\n${feedback}\n\nProvide refined code that addresses all feedback.`
-      }
-    ];
-
-    const refinedCode = await callGroqAPI(messages, 'refinement');
+    logger.info('Refining code...');
+    
+    const refinedCode = await callGroqAPI(
+      config.refinement.systemPrompt,
+      `Please refine the following code based on this feedback:\n\nFeedback: ${feedback || 'Improve overall quality and best practices'}\n\nCode:\n${code}`,
+      config.refinement.maxTokens,
+      config.refinement.temperature
+    );
 
     res.json({
       success: true,
-      stage: 'refinement',
-      round: round,
-      refinedCode: refinedCode,
-      language: language
+      refinedCode,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Refinement error:', error);
-    res.status(500).json({ 
-      error: 'Code refinement failed', 
-      message: error.message 
-    });
+    logger.error(error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Full workflow endpoint
+// Full workflow endpoint (generate -> review -> refine)
 app.post('/api/workflow', async (req, res) => {
   try {
-    const { prompt, language = 'javascript' } = req.body;
-
+    const { prompt } = req.body;
+    
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
-    console.log(`Starting full workflow for: ${prompt}`);
-
+    logger.info('Starting full workflow...');
+    
     const workflow = {
-      prompt: prompt,
-      language: language,
-      stages: []
+      prompt,
+      steps: []
     };
 
-    // Stage 1: Generation
-    console.log('Stage 1: Generating code...');
-    const generationMessages = [
-      {
-        role: 'system',
-        content: config.generation.systemPrompt
-      },
-      {
-        role: 'user',
-        content: `Generate ${language} code for: ${prompt}`
-      }
-    ];
-    const generatedCode = await callGroqAPI(generationMessages, 'generation');
-    workflow.stages.push({
+    // Step 1: Generate
+    logger.info('Step 1: Generating code...');
+    const generatedCode = await callGroqAPI(
+      config.generation.systemPrompt,
+      prompt,
+      config.generation.maxTokens,
+      config.generation.temperature
+    );
+    workflow.steps.push({
       name: 'generation',
-      code: generatedCode
+      result: generatedCode,
+      timestamp: new Date().toISOString()
     });
 
-    // Stage 2: Review
-    console.log('Stage 2: Reviewing generated code...');
-    const reviewMessages = [
-      {
-        role: 'system',
-        content: config.review.systemPrompt
-      },
-      {
-        role: 'user',
-        content: `Review this ${language} code and provide feedback:\n\n${generatedCode}`
-      }
-    ];
-    const review = await callGroqAPI(reviewMessages, 'review');
-    workflow.stages.push({
+    // Step 2: Review
+    logger.info('Step 2: Reviewing code...');
+    const review = await callGroqAPI(
+      config.review.systemPrompt,
+      `Please review the following code:\n\n${generatedCode}`,
+      config.review.maxTokens,
+      config.review.temperature
+    );
+    workflow.steps.push({
       name: 'review',
-      feedback: review
+      result: review,
+      timestamp: new Date().toISOString()
     });
 
-    // Stage 3: Refinement
-    console.log('Stage 3: Refining code based on feedback...');
-    const refinementMessages = [
-      {
-        role: 'system',
-        content: config.refinement.systemPrompt
-      },
-      {
-        role: 'user',
-        content: `Original ${language} code:\n\n${generatedCode}\n\nFeedback to address:\n${review}\n\nProvide refined code that addresses all feedback.`
-      }
-    ];
-    const refinedCode = await callGroqAPI(refinementMessages, 'refinement');
-    workflow.stages.push({
-      name: 'refinement',
-      code: refinedCode
-    });
+    // Step 3: Refine (up to maxRounds times)
+    for (let i = 0; i < config.refinement.maxRounds; i++) {
+      logger.info(`Step 3.${i + 1}: Refining code...`);
+      const refinedCode = await callGroqAPI(
+        config.refinement.systemPrompt,
+        `Please refine the following code based on this review:\n\nReview:\n${review}\n\nCode:\n${workflow.steps[workflow.steps.length - 1].result}`,
+        config.refinement.maxTokens,
+        config.refinement.temperature
+      );
+      workflow.steps.push({
+        name: `refinement_${i + 1}`,
+        result: refinedCode,
+        timestamp: new Date().toISOString()
+      });
+    }
 
-    workflow.completed = true;
     res.json({
       success: true,
-      workflow: workflow
+      workflow,
+      finalCode: workflow.steps[workflow.steps.length - 1].result
     });
   } catch (error) {
-    console.error('Workflow error:', error);
-    res.status(500).json({ 
-      error: 'Workflow failed', 
-      message: error.message 
-    });
+    logger.error(error.message);
+    res.status(500).json({ error: error.message });
   }
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: err.message
-  });
 });
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({
-    error: 'Endpoint not found',
-    path: req.path
-  });
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  logger.error(err.message);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // Start server
 const PORT = config.server.port;
-const HOST = config.server.host;
-
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Groq Coding Agent Server running at http://${HOST}:${PORT}`);
-  console.log(`📝 API Health Check: http://${HOST}:${PORT}/api/health`);
-  console.log(`🤖 Using model: ${config.api.model}`);
+app.listen(PORT, () => {
+  logger.info(`🚀 Groq Coding Agent Server running on http://${config.server.host}:${PORT}`);
+  logger.info(`📝 API Documentation available at http://${config.server.host}:${PORT}/api/docs`);
 });
 
 module.exports = app;
